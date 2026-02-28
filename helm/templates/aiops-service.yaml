@@ -1,0 +1,12 @@
+{{- if .Values.aiops.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: quickchat-aiops
+spec:
+  selector:
+    app: aiops
+  ports:
+    - port: 8000
+      targetPort: 8000
+{{- end }}

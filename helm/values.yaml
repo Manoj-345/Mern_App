@@ -1,0 +1,29 @@
+backend:
+  image: manoj232005/quickchat-server
+  tag: latest
+  replicas: 1
+
+frontend:
+  image: manoj232005/quickchat-client
+  tag: latest
+  replicas: 1
+
+mongo:
+  image: mongo:6
+
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  cpuUtilization: 70
+
+aiops:
+  enabled: true
+  image: manoj232005/quickchat-aiops
+  tag: latest
+  replicas: 1
+  containerPort: 8000
+  cpuThreshold: "0.7"
+  maxReplicas: "5"
+  asgName: "quickchat-worker-asg"
+  awsRegion: "ap-south-1"

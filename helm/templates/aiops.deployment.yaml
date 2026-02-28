@@ -1,0 +1,56 @@
+{{- if .Values.aiops.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickchat-aiops
+spec:
+  replicas: {{ .Values.aiops.replicas }}
+  selector:
+    matchLabels:
+      app: aiops
+  template:
+    metadata:
+      labels:
+        app: aiops
+    spec:
+      serviceAccountName: aiops-sa
+      restartPolicy: Always
+      containers:
+        - name: aiops
+          image: {{ .Values.aiops.image }}:{{ .Values.aiops.tag }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.aiops.containerPort }}
+          env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-server:9090"
+            - name: CPU_THRESHOLD
+              value: "{{ .Values.aiops.cpuThreshold }}"
+            - name: MAX_REPLICAS
+              value: "{{ .Values.aiops.maxReplicas }}"
+            - name: DEPLOYMENT_NAME
+              value: "quickchat-backend"
+            - name: NAMESPACE
+              value: "{{ .Release.Namespace }}"
+            - name: ASG_NAME
+              value: "{{ .Values.aiops.asgName }}"
+            - name: AWS_REGION
+              value: "{{ .Values.aiops.awsRegion }}"
+            - name: SLACK_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: quickchat-aiops-secret
+                  key: SLACK_WEBHOOK
+            - name: SNS_TOPIC_ARN
+              valueFrom:
+                secretKeyRef:
+                  name: quickchat-aiops-secret
+                  key: SNS_TOPIC_ARN
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+{{- end }}

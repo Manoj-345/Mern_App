@@ -1,0 +1,5 @@
+requests
+kubernetes
+boto3
+scikit-learn
+numpy

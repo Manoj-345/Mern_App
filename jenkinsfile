@@ -1,0 +1,95 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_DEFAULT_REGION = "ap-south-1"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+
+        IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
+        IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
+        IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/Manoj-345/Mern_App.git'
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                sh '''
+                docker build -t $IMAGE_BACKEND ./server
+                docker build -t $IMAGE_FRONTEND ./client
+                docker build -t $IMAGE_AIOPS ./aiops
+                '''
+            }
+        }
+
+        stage('Docker Login & Push') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                    docker push $IMAGE_BACKEND
+                    docker push $IMAGE_FRONTEND
+                    docker push $IMAGE_AIOPS
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds'
+                ]]) {
+                    dir('terraform') {
+                        sh '''
+                        terraform init -reconfigure
+                        terraform validate
+                        terraform apply -auto-approve
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Wait for Cluster Ready') {
+            steps {
+                sh 'sleep 60'
+            }
+        }
+
+        stage('Helm Deploy') {
+            steps {
+                withCredentials([file(
+                    credentialsId: 'kubeconfig',
+                    variable: 'KUBECONFIG_FILE'
+                )]) {
+                    sh '''
+                    export KUBECONFIG=$KUBECONFIG_FILE
+                    helm upgrade --install quickchat ./helm
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deployment Successful 🚀"
+        }
+        failure {
+            echo "Deployment Failed ❌"
+        }
+    }
+}
