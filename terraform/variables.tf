@@ -8,5 +8,5 @@ variable "instance_type" {
 }
 
 variable "key_name" {
-  description = "Your AWS key pair name"
+  description = "devops"
 }
