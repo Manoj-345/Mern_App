@@ -1,5 +1,6 @@
-
+############################################
 # DEFAULT VPC
+############################################
 
 data "aws_vpc" "default" {
   default = true
@@ -12,35 +13,28 @@ data "aws_subnets" "default" {
   }
 }
 
-# S3 BUCKET FOR TERRAFORM STATE
+############################################
+# DYNAMIC UBUNTU AMI (PRODUCTION SAFE)
+############################################
 
-resource "aws_s3_bucket" "tf_state" {
-  bucket = "quickchat-terraform-state"
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
 
-  tags = {
-    Name = "QuickChat Terraform State"
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
   }
 }
 
-resource "aws_s3_bucket_versioning" "tf_state_versioning" {
-  bucket = aws_s3_bucket.tf_state.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "tf_state_encryption" {
-  bucket = aws_s3_bucket.tf_state.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
+############################################
 # SECURITY GROUP
+############################################
 
 resource "aws_security_group" "k8s_sg" {
   name   = "quickchat-k8s-sg"
@@ -62,13 +56,17 @@ resource "aws_security_group" "k8s_sg" {
   }
 }
 
+############################################
 # SNS TOPIC
+############################################
 
 resource "aws_sns_topic" "alerts" {
   name = "quickchat-alerts"
 }
 
-# IAM ROLE FOR WORKER NODES
+############################################
+# IAM ROLE FOR WORKERS
+############################################
 
 resource "aws_iam_role" "worker_role" {
   name = "quickchat-worker-role"
@@ -103,10 +101,12 @@ resource "aws_iam_instance_profile" "worker_profile" {
   role = aws_iam_role.worker_role.name
 }
 
+############################################
 # MASTER NODE
+############################################
 
 resource "aws_instance" "master" {
-  ami                    = var.ami
+  ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnets.default.ids[0]
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
@@ -119,13 +119,17 @@ resource "aws_instance" "master" {
   }
 }
 
+############################################
 # WORKER LAUNCH TEMPLATE
+############################################
 
 resource "aws_launch_template" "worker_template" {
   name_prefix   = "quickchat-worker"
-  image_id      = var.ami
+  image_id      = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
   key_name      = var.key_name
+
+  depends_on = [aws_instance.master]
 
   iam_instance_profile {
     name = aws_iam_instance_profile.worker_profile.name
@@ -140,7 +144,9 @@ resource "aws_launch_template" "worker_template" {
   )
 }
 
+############################################
 # AUTOSCALING GROUP
+############################################
 
 resource "aws_autoscaling_group" "worker_asg" {
   name                = "quickchat-worker-asg"
@@ -161,7 +167,9 @@ resource "aws_autoscaling_group" "worker_asg" {
   }
 }
 
+############################################
 # CLOUDWATCH ALARM
+############################################
 
 resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
   alarm_name          = "quickchat-high-cpu"
@@ -179,4 +187,3 @@ resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
 
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
-

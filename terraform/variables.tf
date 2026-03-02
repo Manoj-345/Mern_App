@@ -1,13 +1,8 @@
-variable "ami" {
-  description = "Ubuntu 24.04 LTS x86"
-  default     = "ami-0b6c6ebed2801a5cb"
-}
-
 variable "instance_type" {
-  default = "t2.medium"
+  default = "t3.small"
 }
 
 variable "key_name" {
-  description = "devops project key"
+  description = "EC2 key pair"
   default     = "devops"
 }
