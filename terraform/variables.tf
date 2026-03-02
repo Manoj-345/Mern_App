@@ -8,5 +8,6 @@ variable "instance_type" {
 }
 
 variable "key_name" {
-  description = "devops"
+  description = "devops project key"
+  default     = "devops"
 }
