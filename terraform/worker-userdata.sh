@@ -3,9 +3,9 @@ set -e
 
 MASTER_IP="${master_ip}"
 
-# Install Docker
 apt update -y
-apt install -y docker.io
+apt install -y docker.io curl apt-transport-https ca-certificates gpg
+
 systemctl enable docker
 systemctl start docker
 
@@ -14,14 +14,11 @@ cat <<EOF > /etc/docker/daemon.json
   "exec-opts": ["native.cgroupdriver=systemd"]
 }
 EOF
-
 systemctl restart docker
 
-# Disable Swap
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
 
-# Kernel settings for Kubernetes
 cat <<EOF | tee /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
@@ -38,8 +35,7 @@ EOF
 
 sysctl --system
 
-# Install Kubernetes
-apt install -y apt-transport-https curl ca-certificates
+mkdir -p /etc/apt/keyrings
 
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
 | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
@@ -51,7 +47,6 @@ apt update -y
 apt install -y kubelet kubeadm kubectl
 systemctl enable kubelet
 
-# Wait for master join command dynamically
 until curl -s http://${MASTER_IP}:8080/join.sh -o /tmp/join.sh; do
   echo "Waiting for master..."
   sleep 10
