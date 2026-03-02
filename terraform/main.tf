@@ -1,5 +1,5 @@
 ############################################
-# DEFAULT VPC
+# DATA SOURCES
 ############################################
 
 data "aws_vpc" "default" {
@@ -14,7 +14,7 @@ data "aws_subnets" "default" {
 }
 
 ############################################
-# DYNAMIC UBUNTU AMI (PRODUCTION SAFE)
+# ✅ Ubuntu AMI (Mumbai SAFE)
 ############################################
 
 data "aws_ami" "ubuntu" {
@@ -23,7 +23,7 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-24.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
   }
 
   filter {
@@ -57,7 +57,7 @@ resource "aws_security_group" "k8s_sg" {
 }
 
 ############################################
-# SNS TOPIC
+# SNS
 ############################################
 
 resource "aws_sns_topic" "alerts" {
@@ -65,7 +65,7 @@ resource "aws_sns_topic" "alerts" {
 }
 
 ############################################
-# IAM ROLE FOR WORKERS
+# IAM FOR WORKERS
 ############################################
 
 resource "aws_iam_role" "worker_role" {
@@ -120,7 +120,7 @@ resource "aws_instance" "master" {
 }
 
 ############################################
-# WORKER LAUNCH TEMPLATE
+# WORKER TEMPLATE
 ############################################
 
 resource "aws_launch_template" "worker_template" {
@@ -128,8 +128,6 @@ resource "aws_launch_template" "worker_template" {
   image_id      = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
   key_name      = var.key_name
-
-  depends_on = [aws_instance.master]
 
   iam_instance_profile {
     name = aws_iam_instance_profile.worker_profile.name
@@ -145,7 +143,7 @@ resource "aws_launch_template" "worker_template" {
 }
 
 ############################################
-# AUTOSCALING GROUP
+# AUTO SCALING GROUP
 ############################################
 
 resource "aws_autoscaling_group" "worker_asg" {
