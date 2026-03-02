@@ -25,7 +25,7 @@ pipeline {
             }
         }
 
-        // 🚀 FAST PARALLEL BUILDS
+        // 🚀 Parallel Docker builds (fast)
         stage('Build Docker Images') {
             parallel {
 
@@ -67,16 +67,16 @@ pipeline {
             }
         }
 
+        // ✅ FIXED TERRAFORM STAGE (uses EC2 IAM role)
         stage('Terraform Init & Apply') {
             steps {
-                {
-                    dir('terraform') {
-                        sh '''
-                        terraform init -reconfigure
-                        terraform validate
-                        terraform apply -auto-approve
-                        '''
-                    }
+                dir('terraform') {
+                    sh '''
+                    aws sts get-caller-identity
+                    terraform init -reconfigure
+                    terraform validate
+                    terraform apply -auto-approve
+                    '''
                 }
             }
         }
