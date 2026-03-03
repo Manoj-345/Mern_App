@@ -4,17 +4,14 @@ set -e
 MASTER_IP="${master_ip}"
 
 apt update -y
-apt install -y docker.io curl apt-transport-https ca-certificates gpg
+apt install -y containerd curl apt-transport-https ca-certificates gpg
 
-systemctl enable docker
-systemctl start docker
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
-cat <<EOF > /etc/docker/daemon.json
-{
-  "exec-opts": ["native.cgroupdriver=systemd"]
-}
-EOF
-systemctl restart docker
+systemctl restart containerd
+systemctl enable containerd
 
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
@@ -47,8 +44,8 @@ apt update -y
 apt install -y kubelet kubeadm kubectl
 systemctl enable kubelet
 
-until curl -s http://${master_ip}:8080/join.sh -o /tmp/join.sh; do
-  echo "Waiting for master..."
+# Wait for join script
+until curl -s http://${MASTER_IP}:8080/join.sh -o /tmp/join.sh; do
   sleep 10
 done
 

@@ -2,21 +2,21 @@
 set -e
 
 apt update -y
-apt install -y docker.io python3 curl apt-transport-https ca-certificates gpg
+apt install -y containerd curl apt-transport-https ca-certificates gpg
 
-systemctl enable docker
-systemctl start docker
+# Configure containerd
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
-cat <<EOF > /etc/docker/daemon.json
-{
-  "exec-opts": ["native.cgroupdriver=systemd"]
-}
-EOF
-systemctl restart docker
+systemctl restart containerd
+systemctl enable containerd
 
+# Disable swap
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
 
+# Kernel modules
 cat <<EOF | tee /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
@@ -33,6 +33,7 @@ EOF
 
 sysctl --system
 
+# Install Kubernetes
 mkdir -p /etc/apt/keyrings
 
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
@@ -45,18 +46,21 @@ apt update -y
 apt install -y kubelet kubeadm kubectl
 systemctl enable kubelet
 
+# Initialize cluster
 kubeadm init --pod-network-cidr=192.168.0.0/16
 
-sleep 30
-
+# Configure kubectl
 mkdir -p /home/ubuntu/.kube
 cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
 chown ubuntu:ubuntu /home/ubuntu/.kube/config
 
+# Install Calico
 su - ubuntu -c "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.2/manifests/calico.yaml"
 
+# Generate join command
 kubeadm token create --print-join-command > /home/ubuntu/join.sh
 chmod +x /home/ubuntu/join.sh
 
+# Expose join script
 cd /home/ubuntu
 nohup python3 -m http.server 8080 > server.log 2>&1 &

@@ -25,7 +25,7 @@ pipeline {
             }
         }
 
-        // 🚀 Parallel Docker builds (fast)
+        // 🚀 Parallel Docker builds
         stage('Build Docker Images') {
             parallel {
 
@@ -67,12 +67,10 @@ pipeline {
             }
         }
 
-        // ✅ FIXED TERRAFORM STAGE (uses EC2 IAM role)
-        stage('Terraform Init & Apply') {
+        stage('Terraform Deploy Infrastructure') {
             steps {
                 dir('terraform') {
                     sh '''
-                    aws sts get-caller-identity
                     terraform init -reconfigure
                     terraform validate
                     terraform apply -auto-approve
@@ -84,11 +82,11 @@ pipeline {
         stage('Wait for Cluster Ready') {
             steps {
                 echo "Waiting for cluster..."
-                sh 'sleep 60'
+                sleep 90
             }
         }
 
-        stage('Helm Deploy') {
+        stage('Deploy Application with Helm') {
             steps {
                 withCredentials([file(
                     credentialsId: 'kubeconfig',
@@ -101,6 +99,29 @@ pipeline {
 
                     helm upgrade --install quickchat ./helm \
                       --namespace default \
+                      --create-namespace
+                    '''
+                }
+            }
+        }
+
+        stage('Install Prometheus + Grafana + Alertmanager') {
+            steps {
+                withCredentials([file(
+                    credentialsId: 'kubeconfig',
+                    variable: 'KUBECONFIG_FILE'
+                )]) {
+                    sh '''
+                    export KUBECONFIG=$KUBECONFIG_FILE
+
+                    # Add Helm repo
+                    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+                    helm repo update
+
+                    # Install monitoring stack
+                    helm upgrade --install monitoring \
+                      prometheus-community/kube-prometheus-stack \
+                      --namespace monitoring \
                       --create-namespace
                     '''
                 }
