@@ -3,6 +3,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: quickchat-aiops
+  labels:
+    app: aiops
 spec:
   replicas: {{ .Values.aiops.replicas }}
   selector:
@@ -14,7 +16,6 @@ spec:
         app: aiops
     spec:
       serviceAccountName: aiops-sa
-      restartPolicy: Always
       containers:
         - name: aiops
           image: {{ .Values.aiops.image }}:{{ .Values.aiops.tag }}
@@ -23,7 +24,7 @@ spec:
             - containerPort: {{ .Values.aiops.containerPort }}
           env:
             - name: PROMETHEUS_URL
-              value: "http://prometheus-server:9090"
+              value: "http://monitoring-kube-prometheus-prometheus:9090"
             - name: CPU_THRESHOLD
               value: "{{ .Values.aiops.cpuThreshold }}"
             - name: MAX_REPLICAS

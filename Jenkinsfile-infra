@@ -1,0 +1,16 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Terraform Deploy') {
+            steps {
+                dir('terraform') {
+                    sh '''
+                    terraform init -reconfigure
+                    terraform apply -auto-approve
+                    '''
+                }
+            }
+        }
+    }
+}

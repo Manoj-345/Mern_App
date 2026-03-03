@@ -2,9 +2,7 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = "ap-south-1"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
-
         IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
         IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
         IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
@@ -25,23 +23,19 @@ pipeline {
             }
         }
 
-        // 🚀 Parallel Docker builds
-        stage('Build Docker Images') {
+        stage('Build Images') {
             parallel {
-
-                stage('Build Backend') {
+                stage('Backend') {
                     steps {
                         sh 'docker build -t $IMAGE_BACKEND ./server'
                     }
                 }
-
-                stage('Build Frontend') {
+                stage('Frontend') {
                     steps {
                         sh 'docker build -t $IMAGE_FRONTEND ./client'
                     }
                 }
-
-                stage('Build AIOps') {
+                stage('AIOps') {
                     steps {
                         sh 'docker build -t $IMAGE_AIOPS ./aiops'
                     }
@@ -49,7 +43,7 @@ pipeline {
             }
         }
 
-        stage('Docker Login & Push') {
+        stage('Push Images') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-creds',
@@ -58,7 +52,6 @@ pipeline {
                 )]) {
                     sh '''
                     echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
                     docker push $IMAGE_BACKEND
                     docker push $IMAGE_FRONTEND
                     docker push $IMAGE_AIOPS
@@ -67,22 +60,37 @@ pipeline {
             }
         }
 
-        stage('Terraform Deploy Infrastructure') {
+        stage('Create Kubernetes Secrets') {
             steps {
-                dir('terraform') {
+                withCredentials([
+                    file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE'),
+                    string(credentialsId: 'mongodb-uri', variable: 'MONGO_URI'),
+                    string(credentialsId: 'jwt-secret', variable: 'JWT_SECRET'),
+                    string(credentialsId: 'cloudinary-name', variable: 'CLOUD_NAME'),
+                    string(credentialsId: 'cloudinary-api-key', variable: 'CLOUD_KEY'),
+                    string(credentialsId: 'cloudinary-api-secret', variable: 'CLOUD_SECRET'),
+                    string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK'),
+                    string(credentialsId: 'sns-topic-arn', variable: 'SNS_ARN')
+                ]) {
                     sh '''
-                    terraform init -reconfigure
-                    terraform validate
-                    terraform apply -auto-approve
+                    export KUBECONFIG=$KUBECONFIG_FILE
+
+                    # Backend Secret
+                    kubectl create secret generic quickchat-backend-secret \
+                      --from-literal=MONGODB_URI="$MONGO_URI" \
+                      --from-literal=JWT_SECRET="$JWT_SECRET" \
+                      --from-literal=CLOUDINARY_CLOUD_NAME="$CLOUD_NAME" \
+                      --from-literal=CLOUDINARY_API_KEY="$CLOUD_KEY" \
+                      --from-literal=CLOUDINARY_API_SECRET="$CLOUD_SECRET" \
+                      --dry-run=client -o yaml | kubectl apply -f -
+
+                    # AIOps Secret
+                    kubectl create secret generic quickchat-aiops-secret \
+                      --from-literal=SLACK_WEBHOOK="$SLACK_WEBHOOK" \
+                      --from-literal=SNS_TOPIC_ARN="$SNS_ARN" \
+                      --dry-run=client -o yaml | kubectl apply -f -
                     '''
                 }
-            }
-        }
-
-        stage('Wait for Cluster Ready') {
-            steps {
-                echo "Waiting for cluster..."
-                sleep 90
             }
         }
 
@@ -95,11 +103,11 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
-                    kubectl get nodes
-
                     helm upgrade --install quickchat ./helm \
                       --namespace default \
-                      --create-namespace
+                      --create-namespace \
+                      --set backend.tag=$IMAGE_TAG \
+                      --set aiops.tag=$IMAGE_TAG
                     '''
                 }
             }
@@ -114,11 +122,11 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
-                    # Add Helm repo
+                    # Add monitoring repo
                     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
                     helm repo update
 
-                    # Install monitoring stack
+                    # Install full monitoring stack
                     helm upgrade --install monitoring \
                       prometheus-community/kube-prometheus-stack \
                       --namespace monitoring \
