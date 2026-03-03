@@ -45,7 +45,7 @@ apt install -y kubelet kubeadm kubectl
 systemctl enable kubelet
 
 # Wait for join script
-until curl -s http://${MASTER_IP}:8080/join.sh -o /tmp/join.sh; do
+until curl -s http://${master_ip}:8080/join.sh -o /tmp/join.sh; do
   sleep 10
 done
 
