@@ -107,6 +107,7 @@ pipeline {
                       --namespace default \
                       --create-namespace \
                       --set backend.tag=$IMAGE_TAG \
+                      --set frontend.tag=$IMAGE_TAG \
                       --set aiops.tag=$IMAGE_TAG
                     '''
                 }
