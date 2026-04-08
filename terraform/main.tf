@@ -1,6 +1,4 @@
-############################################
 # DATA SOURCES
-############################################
 
 data "aws_vpc" "default" {
   default = true
@@ -13,9 +11,9 @@ data "aws_subnets" "default" {
   }
 }
 
-############################################
-# ✅ Ubuntu AMI (Mumbai SAFE)
-############################################
+
+# Ubuntu AMI (Mumbai)
+
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -32,9 +30,8 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-############################################
+
 # SECURITY GROUP
-############################################
 
 resource "aws_security_group" "k8s_sg" {
   name   = "quickchat-k8s-sg"
@@ -56,17 +53,14 @@ resource "aws_security_group" "k8s_sg" {
   }
 }
 
-############################################
 # SNS
-############################################
 
 resource "aws_sns_topic" "alerts" {
   name = "quickchat-alerts"
 }
 
-############################################
 # IAM FOR WORKERS
-############################################
+
 
 resource "aws_iam_role" "worker_role" {
   name = "quickchat-worker-role"
@@ -101,9 +95,9 @@ resource "aws_iam_instance_profile" "worker_profile" {
   role = aws_iam_role.worker_role.name
 }
 
-############################################
+
 # MASTER NODE
-############################################
+
 
 resource "aws_instance" "master" {
   ami                    = data.aws_ami.ubuntu.id
@@ -119,9 +113,7 @@ resource "aws_instance" "master" {
   }
 }
 
-############################################
 # WORKER TEMPLATE
-############################################
 
 resource "aws_launch_template" "worker_template" {
   name_prefix   = "quickchat-worker"
@@ -142,9 +134,7 @@ resource "aws_launch_template" "worker_template" {
   )
 }
 
-############################################
 # AUTO SCALING GROUP
-############################################
 
 resource "aws_autoscaling_group" "worker_asg" {
   name                = "quickchat-worker-asg"
@@ -165,9 +155,7 @@ resource "aws_autoscaling_group" "worker_asg" {
   }
 }
 
-############################################
 # CLOUDWATCH ALARM
-############################################
 
 resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
   alarm_name          = "quickchat-high-cpu"
