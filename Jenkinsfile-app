@@ -131,7 +131,9 @@ pipeline {
                     helm upgrade --install monitoring \
                       prometheus-community/kube-prometheus-stack \
                       --namespace monitoring \
-                      --create-namespace
+                      --create-namespace \
+                      --timeout 10m \
+                      --wait
                     '''
                 }
             }
