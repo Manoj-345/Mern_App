@@ -132,7 +132,7 @@ pipeline {
                       prometheus-community/kube-prometheus-stack \
                       --namespace monitoring \
                       --create-namespace \
-                      --timeout 10m \
+                      --timeout 20m \
                       --wait
                     '''
                 }
