@@ -44,7 +44,7 @@ pipeline {
                     steps {
                         sh '''
                         docker build \
-                          --build-arg VITE_BACKEND_URL=http://quickchat-backend:5000 \
+                          --build-arg VITE_BACKEND_URL=http://13.206.91.169:30008 \
                           -t $IMAGE_FRONTEND ./client
                         '''
                     }
