@@ -29,7 +29,7 @@ pipeline {
         }
 
         
-        # BUILD DOCKER IMAGES (PARALLEL)
+        // BUILD DOCKER IMAGES (PARALLEL)
         
         stage('Build Images') {
             parallel {
@@ -59,7 +59,7 @@ pipeline {
         }
 
         
-        # PUSH DOCKER IMAGES
+        // PUSH DOCKER IMAGES
         
         stage('Push Images') {
             steps {
@@ -80,7 +80,7 @@ pipeline {
         }
 
        
-        # CREATE KUBERNETES SECRETS
+        // CREATE KUBERNETES SECRETS
         
         stage('Create Kubernetes Secrets') {
             steps {
@@ -117,7 +117,7 @@ pipeline {
         }
 
         
-        # DEPLOY USING HELM
+        // DEPLOY USING HELM
         
         stage('Deploy Application') {
             steps {
@@ -140,7 +140,7 @@ pipeline {
         }
 
         
-        # VERIFY DEPLOYMENT
+        // VERIFY DEPLOYMENT
         
         stage('Verify Rollout') {
             steps {
@@ -159,7 +159,7 @@ pipeline {
         }
 
         
-        # INSTALL MONITORING (RUN ONLY ON FIRST BUILD)
+        //INSTALL MONITORING (RUN ONLY ON FIRST BUILD)
         
         stage('Install Monitoring') {
             when {
