@@ -3,7 +3,9 @@ kind: Deployment
 metadata:
   name: quickchat-frontend
 spec:
-  replicas: {{ .Values.frontend.replicas }}
+  replicas: 2
+  strategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: frontend
@@ -17,3 +19,10 @@ spec:
           image: {{ .Values.frontend.image }}:{{ .Values.frontend.tag }}
           ports:
             - containerPort: 80
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5

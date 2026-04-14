@@ -17,6 +17,9 @@ pipeline {
 
     stages {
 
+        
+        # CHECKOUT CODE
+        
         stage('Checkout Code') {
             steps {
                 git branch: 'main',
@@ -26,11 +29,11 @@ pipeline {
         }
 
         
-        # BUILD DOCKER IMAGES
-       
-
+        # BUILD DOCKER IMAGES (PARALLEL)
+        
         stage('Build Images') {
             parallel {
+
                 stage('Backend') {
                     steps {
                         sh 'docker build -t $IMAGE_BACKEND ./server'
@@ -56,9 +59,8 @@ pipeline {
         }
 
         
-        # PUSH IMAGES
-       
-
+        # PUSH DOCKER IMAGES
+        
         stage('Push Images') {
             steps {
                 withCredentials([usernamePassword(
@@ -78,8 +80,8 @@ pipeline {
         }
 
        
-        # CREATE K8s SECRETS
-       
+        # CREATE KUBERNETES SECRETS
+        
         stage('Create Kubernetes Secrets') {
             steps {
                 withCredentials([
@@ -95,6 +97,7 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
+                    # Backend Secret
                     kubectl create secret generic quickchat-backend-secret \
                       --from-literal=MONGODB_URI="$MONGO_URI" \
                       --from-literal=JWT_SECRET="$JWT_SECRET" \
@@ -103,6 +106,7 @@ pipeline {
                       --from-literal=CLOUDINARY_API_SECRET="$CLOUD_SECRET" \
                       --dry-run=client -o yaml | kubectl apply -f -
 
+                    # AIOps Secret
                     kubectl create secret generic quickchat-aiops-secret \
                       --from-literal=SLACK_WEBHOOK="$SLACK_WEBHOOK" \
                       --from-literal=SNS_TOPIC_ARN="$SNS_ARN" \
@@ -138,7 +142,6 @@ pipeline {
         
         # VERIFY DEPLOYMENT
         
-
         stage('Verify Rollout') {
             steps {
                 withCredentials([file(
@@ -156,9 +159,8 @@ pipeline {
         }
 
         
-        # INSTALL MONITORING 
-       
-
+        # INSTALL MONITORING (RUN ONLY ON FIRST BUILD)
+        
         stage('Install Monitoring') {
             when {
                 expression { return env.BUILD_NUMBER == "1" }
@@ -188,7 +190,7 @@ pipeline {
 
     post {
         success {
-            echo "🎉 Deployment Successful"
+            echo "🎉 Deployment Successful 🚀"
         }
 
         failure {
@@ -196,7 +198,7 @@ pipeline {
         }
 
         always {
-            # SAFE CLEANUP (does NOT break pipeline)
+            # SAFE CLEANUP
             sh '''
             docker image prune -f
             docker container prune -f

@@ -5,7 +5,12 @@ metadata:
   labels:
     app: backend
 spec:
-  replicas: {{ .Values.backend.replicas }}
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: backend
@@ -20,6 +25,7 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
+
           env:
             - name: MONGODB_URI
               valueFrom:
@@ -31,21 +37,21 @@ spec:
                 secretKeyRef:
                   name: quickchat-backend-secret
                   key: JWT_SECRET
-            - name: CLOUDINARY_CLOUD_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: quickchat-backend-secret
-                  key: CLOUDINARY_CLOUD_NAME
-            - name: CLOUDINARY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: quickchat-backend-secret
-                  key: CLOUDINARY_API_KEY
-            - name: CLOUDINARY_API_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: quickchat-backend-secret
-                  key: CLOUDINARY_API_SECRET
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
           resources:
             requests:
               cpu: "100m"

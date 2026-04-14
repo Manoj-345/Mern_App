@@ -3,8 +3,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: quickchat-aiops
-  labels:
-    app: aiops
 spec:
   replicas: {{ .Values.aiops.replicas }}
   selector:
@@ -20,8 +18,7 @@ spec:
         - name: aiops
           image: {{ .Values.aiops.image }}:{{ .Values.aiops.tag }}
           imagePullPolicy: Always
-          ports:
-            - containerPort: {{ .Values.aiops.containerPort }}
+
           env:
             - name: PROMETHEUS_URL
               value: "http://monitoring-kube-prometheus-prometheus:9090"
@@ -37,21 +34,16 @@ spec:
               value: "{{ .Values.aiops.asgName }}"
             - name: AWS_REGION
               value: "{{ .Values.aiops.awsRegion }}"
+
             - name: SLACK_WEBHOOK
               valueFrom:
                 secretKeyRef:
                   name: quickchat-aiops-secret
                   key: SLACK_WEBHOOK
+
             - name: SNS_TOPIC_ARN
               valueFrom:
                 secretKeyRef:
                   name: quickchat-aiops-secret
                   key: SNS_TOPIC_ARN
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "300m"
-              memory: "256Mi"
 {{- end }}

@@ -1,21 +1,48 @@
 backend:
   image: manoj232005/quickchat-server
   tag: latest
-  replicas: 1
+  replicas: 2   
+  service:
+    type: ClusterIP
+    port: 5000
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
+
 
 frontend:
   image: manoj232005/quickchat-client
   tag: latest
-  replicas: 1
+  replicas: 2   
+
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30007   
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
+
 
 mongo:
   image: mongo:6
+  enabled: false   
 
 hpa:
   enabled: true
-  minReplicas: 1
+  minReplicas: 2   
   maxReplicas: 5
   cpuUtilization: 70
+
 
 aiops:
   enabled: true
@@ -23,7 +50,17 @@ aiops:
   tag: latest
   replicas: 1
   containerPort: 8000
+
   cpuThreshold: "0.7"
   maxReplicas: "5"
+
   asgName: "quickchat-worker-asg"
   awsRegion: "ap-south-1"
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
