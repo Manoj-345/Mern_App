@@ -18,7 +18,7 @@ pipeline {
     stages {
 
         
-        # CHECKOUT CODE
+        // CHECKOUT CODE
         
         stage('Checkout Code') {
             steps {
