@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         IMAGE_TAG = "${env.BUILD_NUMBER}"
+
         IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
         IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
         IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
@@ -11,6 +12,7 @@ pipeline {
     options {
         timestamps()
         disableConcurrentBuilds()
+        timeout(time: 40, unit: 'MINUTES')
     }
 
     stages {
@@ -23,6 +25,10 @@ pipeline {
             }
         }
 
+        
+        # BUILD DOCKER IMAGES
+       
+
         stage('Build Images') {
             parallel {
                 stage('Backend') {
@@ -30,11 +36,17 @@ pipeline {
                         sh 'docker build -t $IMAGE_BACKEND ./server'
                     }
                 }
+
                 stage('Frontend') {
                     steps {
-                        sh 'docker build -t $IMAGE_FRONTEND ./client'
+                        sh '''
+                        docker build \
+                          --build-arg VITE_BACKEND_URL=http://quickchat-backend:5000 \
+                          -t $IMAGE_FRONTEND ./client
+                        '''
                     }
                 }
+
                 stage('AIOps') {
                     steps {
                         sh 'docker build -t $IMAGE_AIOPS ./aiops'
@@ -42,6 +54,10 @@ pipeline {
                 }
             }
         }
+
+        
+        # PUSH IMAGES
+       
 
         stage('Push Images') {
             steps {
@@ -52,6 +68,7 @@ pipeline {
                 )]) {
                     sh '''
                     echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
                     docker push $IMAGE_BACKEND
                     docker push $IMAGE_FRONTEND
                     docker push $IMAGE_AIOPS
@@ -60,6 +77,9 @@ pipeline {
             }
         }
 
+       
+        # CREATE K8s SECRETS
+       
         stage('Create Kubernetes Secrets') {
             steps {
                 withCredentials([
@@ -75,7 +95,6 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
-                    # Backend Secret
                     kubectl create secret generic quickchat-backend-secret \
                       --from-literal=MONGODB_URI="$MONGO_URI" \
                       --from-literal=JWT_SECRET="$JWT_SECRET" \
@@ -84,7 +103,6 @@ pipeline {
                       --from-literal=CLOUDINARY_API_SECRET="$CLOUD_SECRET" \
                       --dry-run=client -o yaml | kubectl apply -f -
 
-                    # AIOps Secret
                     kubectl create secret generic quickchat-aiops-secret \
                       --from-literal=SLACK_WEBHOOK="$SLACK_WEBHOOK" \
                       --from-literal=SNS_TOPIC_ARN="$SNS_ARN" \
@@ -94,7 +112,10 @@ pipeline {
             }
         }
 
-        stage('Deploy Application with Helm') {
+        
+        # DEPLOY USING HELM
+        
+        stage('Deploy Application') {
             steps {
                 withCredentials([file(
                     credentialsId: 'kubeconfig',
@@ -114,7 +135,11 @@ pipeline {
             }
         }
 
-        stage('Install Prometheus + Grafana + Alertmanager') {
+        
+        # VERIFY DEPLOYMENT
+        
+
+        stage('Verify Rollout') {
             steps {
                 withCredentials([file(
                     credentialsId: 'kubeconfig',
@@ -123,20 +148,38 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
-                    # Add monitoring repo
+                    kubectl rollout status deployment/quickchat-backend
+                    kubectl rollout status deployment/quickchat-frontend
+                    '''
+                }
+            }
+        }
+
+        
+        # INSTALL MONITORING 
+       
+
+        stage('Install Monitoring') {
+            when {
+                expression { return env.BUILD_NUMBER == "1" }
+            }
+            steps {
+                withCredentials([file(
+                    credentialsId: 'kubeconfig',
+                    variable: 'KUBECONFIG_FILE'
+                )]) {
+                    sh '''
+                    export KUBECONFIG=$KUBECONFIG_FILE
+
                     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
                     helm repo update
 
-                    # Install full monitoring stack
                     helm upgrade --install monitoring \
                       prometheus-community/kube-prometheus-stack \
                       --namespace monitoring \
                       --create-namespace \
-                      --timeout 20m \
-                      --wait
-                      --set grafana.resources.requests.memory=128Mi \
-                      --set prometheus.resources.requests.memory=256Mi \
-                      --set alertmanager.enabled=false
+                      --wait \
+                      --timeout 20m
                     '''
                 }
             }
@@ -147,11 +190,17 @@ pipeline {
         success {
             echo "🎉 Deployment Successful"
         }
+
         failure {
             echo "❌ Deployment Failed"
         }
+
         always {
-            sh 'docker system prune -f || true'
+            # SAFE CLEANUP (does NOT break pipeline)
+            sh '''
+            docker image prune -f
+            docker container prune -f
+            '''
         }
     }
 }

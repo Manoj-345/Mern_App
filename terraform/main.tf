@@ -11,26 +11,6 @@ data "aws_subnets" "default" {
   }
 }
 
-
-# Ubuntu AMI (Mumbai)
-
-
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-}
-
-
 # SECURITY GROUP
 
 resource "aws_security_group" "k8s_sg" {
@@ -38,7 +18,7 @@ resource "aws_security_group" "k8s_sg" {
   vpc_id = data.aws_vpc.default.id
 
   ingress {
-    description = "Allow All Traffic (Lab Only)"
+    description = "Allow All (Lab)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -59,8 +39,7 @@ resource "aws_sns_topic" "alerts" {
   name = "quickchat-alerts"
 }
 
-# IAM FOR WORKERS
-
+# IAM ROLE (WORKERS)
 
 resource "aws_iam_role" "worker_role" {
   name = "quickchat-worker-role"
@@ -95,12 +74,10 @@ resource "aws_iam_instance_profile" "worker_profile" {
   role = aws_iam_role.worker_role.name
 }
 
-
 # MASTER NODE
 
-
 resource "aws_instance" "master" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = "ami-05d2d839d4f73aafb" # 
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnets.default.ids[0]
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
@@ -111,13 +88,17 @@ resource "aws_instance" "master" {
   tags = {
     Name = "quickchat-master"
   }
+
+  lifecycle {
+    ignore_changes = [user_data] # 
+  }
 }
 
 # WORKER TEMPLATE
 
 resource "aws_launch_template" "worker_template" {
   name_prefix   = "quickchat-worker"
-  image_id      = data.aws_ami.ubuntu.id
+  image_id      = "ami-05d2d839d4f73aafb"
   instance_type = var.instance_type
   key_name      = var.key_name
 
@@ -173,3 +154,4 @@ resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
 
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
+
