@@ -6,7 +6,7 @@ set -e
 # Install dependencies
 
 apt update -y
-apt install -y containerd curl apt-transport-https ca-certificates gpg netcat
+apt install -y containerd curl apt-transport-https ca-certificates gpg netcat-openbsd
 
 
 # Configure containerd
