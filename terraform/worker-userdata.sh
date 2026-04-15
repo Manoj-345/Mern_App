@@ -3,18 +3,30 @@ set -e
 
 MASTER_IP="${master_ip}"
 
+# Install dependencies
+
 apt update -y
-apt install -y containerd curl apt-transport-https ca-certificates gpg
+apt install -y containerd curl apt-transport-https ca-certificates gpg netcat
+
+
+# Configure containerd
 
 mkdir -p /etc/containerd
 containerd config default | tee /etc/containerd/config.toml
+
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
 systemctl restart containerd
 systemctl enable containerd
 
+
+# Disable swap
+
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
+
+
+# Kernel settings
 
 modprobe overlay
 modprobe br_netfilter
@@ -26,6 +38,9 @@ net.bridge.bridge-nf-call-ip6tables = 1
 EOF
 
 sysctl --system
+
+
+# Install Kubernetes
 
 mkdir -p /etc/apt/keyrings
 
@@ -39,8 +54,19 @@ apt update -y
 apt install -y kubelet kubeadm kubectl
 systemctl enable kubelet
 
-until curl -s http://${master_ip}:8080/join.sh -o /tmp/join.sh; do
+
+# Wait for master API
+
+echo "Waiting for master..."
+
+until nc -z ${MASTER_IP} 6443; do
   sleep 10
 done
 
-bash /tmp/join.sh
+
+# Join cluster (IMPORTANT 🔥)
+
+kubeadm join ${master_ip}:6443 \
+  --token y0mjcu.j833e3mwir4mkjic \
+  --discovery-token-ca-cert-hash sha256: e5dbf6fe6885af4cb0f8d0a84db921b988722b2aced8dbd481c8af79a1f71175
+echo "Worker joined successfully!"
