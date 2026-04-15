@@ -7,6 +7,8 @@ pipeline {
         IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
         IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
         IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
+
+        BACKEND_URL = "http://13.206.91.169:30008" 
     }
 
     options {
@@ -18,7 +20,7 @@ pipeline {
     stages {
 
         
-        // CHECKOUT CODE
+        // CHECKOUT
         
         stage('Checkout Code') {
             steps {
@@ -29,7 +31,7 @@ pipeline {
         }
 
         
-        // BUILD DOCKER IMAGES (PARALLEL)
+        // BUILD IMAGES
         
         stage('Build Images') {
             parallel {
@@ -44,7 +46,7 @@ pipeline {
                     steps {
                         sh '''
                         docker build \
-                          --build-arg VITE_BACKEND_URL=http://13.206.91.169:30008 \
+                          --build-arg VITE_BACKEND_URL=$BACKEND_URL \
                           -t $IMAGE_FRONTEND ./client
                         '''
                     }
@@ -59,7 +61,7 @@ pipeline {
         }
 
         
-        // PUSH DOCKER IMAGES
+        // PUSH IMAGES
         
         stage('Push Images') {
             steps {
@@ -79,8 +81,8 @@ pipeline {
             }
         }
 
-       
-        // CREATE KUBERNETES SECRETS
+        
+        // CREATE K8S SECRETS
         
         stage('Create Kubernetes Secrets') {
             steps {
@@ -97,7 +99,6 @@ pipeline {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
 
-                    # Backend Secret
                     kubectl create secret generic quickchat-backend-secret \
                       --from-literal=MONGODB_URI="$MONGO_URI" \
                       --from-literal=JWT_SECRET="$JWT_SECRET" \
@@ -106,7 +107,6 @@ pipeline {
                       --from-literal=CLOUDINARY_API_SECRET="$CLOUD_SECRET" \
                       --dry-run=client -o yaml | kubectl apply -f -
 
-                    # AIOps Secret
                     kubectl create secret generic quickchat-aiops-secret \
                       --from-literal=SLACK_WEBHOOK="$SLACK_WEBHOOK" \
                       --from-literal=SNS_TOPIC_ARN="$SNS_ARN" \
@@ -117,8 +117,8 @@ pipeline {
         }
 
         
-        // DEPLOY USING HELM
-        
+        // DEPLOY APPLICATION
+       
         stage('Deploy Application') {
             steps {
                 withCredentials([file(
@@ -158,13 +158,10 @@ pipeline {
             }
         }
 
-        
-        //INSTALL MONITORING (RUN ONLY ON FIRST BUILD)
-        
+       
+        // INSTALL MONITORING (SAFE)
+       
         stage('Install Monitoring') {
-            when {
-                expression { return env.BUILD_NUMBER == "1" }
-            }
             steps {
                 withCredentials([file(
                     credentialsId: 'kubeconfig',
@@ -176,12 +173,15 @@ pipeline {
                     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
                     helm repo update
 
-                    helm upgrade --install monitoring \
-                      prometheus-community/kube-prometheus-stack \
-                      --namespace monitoring \
-                      --create-namespace \
-                      --wait \
-                      --timeout 20m
+                    if ! helm list -n monitoring | grep monitoring; then
+                      helm install monitoring prometheus-community/kube-prometheus-stack \
+                        --namespace monitoring \
+                        --create-namespace \
+                        --wait \
+                        --timeout 20m
+                    else
+                      echo "Monitoring already installed, skipping..."
+                    fi
                     '''
                 }
             }
@@ -199,8 +199,8 @@ pipeline {
 
         always {
             sh '''
-            docker image prune -f
-            docker container prune -f
+            docker image prune -f || true
+            docker container prune -f || true
             '''
         }
     }
