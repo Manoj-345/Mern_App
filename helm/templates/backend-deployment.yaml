@@ -4,25 +4,32 @@ metadata:
   name: quickchat-backend
   labels:
     app: backend
+
 spec:
   replicas: 2
+
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+
   selector:
     matchLabels:
       app: backend
+
   template:
     metadata:
       labels:
         app: backend
+
     spec:
       containers:
         - name: backend
+
           image: {{ .Values.backend.image }}:{{ .Values.backend.tag }}
           imagePullPolicy: Always
+
           ports:
             - containerPort: 5000
 
@@ -32,30 +39,39 @@ spec:
                 secretKeyRef:
                   name: quickchat-backend-secret
                   key: MONGODB_URI
+
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: quickchat-backend-secret
                   key: JWT_SECRET
 
+            - name: PORT
+              value: "5000"
+
           readinessProbe:
             httpGet:
-              path: /
-              port: 5000
-            initialDelaySeconds: 5
-            periodSeconds: 5
-
-          livenessProbe:
-            httpGet:
-              path: /
+              path: /api/status
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
 
           resources:
             requests:
               cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "300m"
               memory: "256Mi"
+
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
