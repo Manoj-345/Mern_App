@@ -6,52 +6,61 @@ import { connectDB } from "./lib/db.js";
 import userRouter from "./routes/userRoutes.js";
 import messageRouter from "./routes/messageRoutes.js";
 import { Server } from "socket.io";
-import { Socket } from "dgram";
 
 // Create Express app and HTTP server
 const app = express();
-const server  = http.createServer(app)
+const server = http.createServer(app);
 
-// Initialize socket.io server
+// ✅ FIXED SOCKET.IO CONFIG
 export const io = new Server(server, {
-    cors: {origin: "*"}
-})
+    cors: {
+        origin: "*",
+    },
+    path: "/socket.io",   
+});
 
 // Store online users
-export const userSocketMap = {}; // { userId: sockerId }
+export const userSocketMap = {}; 
 
-// Socker.io connection handle
-io.on("connection", (Socket)=>{
-    const userId = Socket.handshake.query.userId;
-    console.log("User Connected", userId);
+// ✅ FIXED CONNECTION HANDLER
+io.on("connection", (socket) => {
+    const userId = socket.handshake.query.userId;
 
-    if(userId) userSocketMap[userId] = Socket.id;
+    console.log("User Connected:", userId);
 
-    // Emit online users to all connected clients
+    if (userId) userSocketMap[userId] = socket.id;
+
+    // Emit online users
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-    Socket.on("disconnect", ()=>{
-        console.log("User Disconnected", userId);
-        delete userSocketMap[userId];
-        io.emit("getOnlineUsers", Object.keys(userSocketMap))
-    })
-})
+    socket.on("disconnect", () => {
+        console.log("User Disconnected:", userId);
 
-// Middleware setup
-app.use(express.json({limit: "4mb"}));
+        delete userSocketMap[userId];
+
+        io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    });
+});
+
+// Middleware
+app.use(express.json({ limit: "4mb" }));
 
 app.use(cors({
-  origin: "*",
-  credentials: true
+    origin: "*",
+    credentials: true
 }));
 
-app.use("/api/status", (req, res)=> res.send("Server is live"));
+// Routes
+app.use("/api/status", (req, res) => res.send("Server is live"));
 app.use("/api/auth", userRouter);
-app.use("/api/messages", messageRouter)
+app.use("/api/messages", messageRouter);
 
-// Connect to MongoDB
+// Connect DB
 await connectDB();
 
+// Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, ()=> console.log("Server is running on PORT: " + PORT));
 
+server.listen(PORT, () => {
+    console.log("Server running on PORT:", PORT);
+});

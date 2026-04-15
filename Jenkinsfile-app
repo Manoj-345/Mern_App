@@ -7,8 +7,6 @@ pipeline {
         IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
         IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
         IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
-
-        BACKEND_URL = "http://13.206.91.169:30008" 
     }
 
     options {
@@ -20,7 +18,7 @@ pipeline {
     stages {
 
         
-        // CHECKOUT
+        // CHECKOUT CODE
         
         stage('Checkout Code') {
             steps {
@@ -31,7 +29,7 @@ pipeline {
         }
 
         
-        // BUILD IMAGES
+        // BUILD DOCKER IMAGES
         
         stage('Build Images') {
             parallel {
@@ -44,11 +42,8 @@ pipeline {
 
                 stage('Frontend') {
                     steps {
-                        sh '''
-                        docker build \
-                          --build-arg VITE_BACKEND_URL=$BACKEND_URL \
-                          -t $IMAGE_FRONTEND ./client
-                        '''
+                        // ✅ NO BACKEND URL (Ingress handles routing)
+                        sh 'docker build -t $IMAGE_FRONTEND ./client'
                     }
                 }
 
@@ -61,7 +56,7 @@ pipeline {
         }
 
         
-        // PUSH IMAGES
+        // PUSH DOCKER IMAGES
         
         stage('Push Images') {
             steps {
@@ -82,7 +77,7 @@ pipeline {
         }
 
         
-        // CREATE K8S SECRETS
+        // CREATE / UPDATE K8s SECRETS
         
         stage('Create Kubernetes Secrets') {
             steps {
@@ -116,9 +111,9 @@ pipeline {
             }
         }
 
-        
-        // DEPLOY APPLICATION
        
+        // DEPLOY USING HELM
+        
         stage('Deploy Application') {
             steps {
                 withCredentials([file(
@@ -158,9 +153,9 @@ pipeline {
             }
         }
 
-       
-        // INSTALL MONITORING (SAFE)
-       
+        
+        // INSTALL MONITORING (ONLY ONCE)
+        
         stage('Install Monitoring') {
             steps {
                 withCredentials([file(
@@ -178,7 +173,10 @@ pipeline {
                         --namespace monitoring \
                         --create-namespace \
                         --wait \
-                        --timeout 20m
+                        --timeout 20m \
+                        --set grafana.resources.requests.memory=128Mi \
+                        --set prometheus.resources.requests.memory=256Mi \
+                        --set alertmanager.enabled=false
                     else
                       echo "Monitoring already installed, skipping..."
                     fi
@@ -188,6 +186,9 @@ pipeline {
         }
     }
 
+    
+    // CLEANUP (SAFE FOR t3.small)
+    
     post {
         success {
             echo "🎉 Deployment Successful 🚀"
@@ -199,8 +200,11 @@ pipeline {
 
         always {
             sh '''
-            docker image prune -f || true
-            docker container prune -f || true
+            # Clean stopped containers
+            docker container prune -f
+
+            # Clean unused images (safe)
+            docker image prune -f
             '''
         }
     }

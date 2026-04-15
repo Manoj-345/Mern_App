@@ -3,12 +3,16 @@ kind: Ingress
 metadata:
   name: quickchat-ingress
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "quickchat-backend"
 spec:
   ingressClassName: nginx
   rules:
   - http:
       paths:
+
+      # FRONTEND
       - path: /
         pathType: Prefix
         backend:
@@ -17,7 +21,17 @@ spec:
             port:
               number: 80
 
+      # BACKEND API
       - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: quickchat-backend
+            port:
+              number: 5000
+
+      #  SOCKET.IO 
+      - path: /socket.io/
         pathType: Prefix
         backend:
           service:
