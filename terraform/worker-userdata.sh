@@ -66,7 +66,7 @@ done
 
 # Join cluster (IMPORTANT 🔥)
 
-kubeadm join ${master_ip}:6443 \
+kubeadm join ${MASTER_IP}:6443 \
   --token y0mjcu.j833e3mwir4mkjic \
-  --discovery-token-ca-cert-hash sha256: e5dbf6fe6885af4cb0f8d0a84db921b988722b2aced8dbd481c8af79a1f71175
+  --discovery-token-ca-cert-hash sha256:e5dbf6fe6885af4cb0f8d0a84db921b988722b2aced8dbd481c8af79a1f71175
 echo "Worker joined successfully!"
