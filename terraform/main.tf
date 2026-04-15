@@ -134,6 +134,12 @@ resource "aws_autoscaling_group" "worker_asg" {
     value               = "quickchat-worker"
     propagate_at_launch = true
   }
+
+instance_refresh {
+    strategy = "Rolling"
+
+    triggers = ["launch_template"]
+  }
 }
 
 # CLOUDWATCH ALARM
