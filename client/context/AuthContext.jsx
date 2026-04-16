@@ -3,8 +3,11 @@ import axios from "axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 
-// ✅ Use SAME domain (handled by Ingress)
-axios.defaults.baseURL = "/";
+
+const backendUrl = "http://43.205.45.211:30008";
+
+// Axios base URL
+axios.defaults.baseURL = backendUrl;
 
 export const AuthContext = createContext();
 
@@ -15,7 +18,7 @@ export const AuthProvider = ({ children }) => {
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [socket, setSocket] = useState(null);
 
-    // ✅ CHECK AUTH
+    //  CHECK AUTH
     const checkAuth = async () => {
         try {
             const { data } = await axios.get("/api/auth/check");
@@ -28,7 +31,7 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // ✅ LOGIN
+    // LOGIN / SIGNUP
     const login = async (state, credentials) => {
         try {
             const { data } = await axios.post(`/api/auth/${state}`, credentials);
@@ -51,7 +54,7 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // ✅ LOGOUT
+    // LOGOUT
     const logout = () => {
         localStorage.removeItem("token");
         setToken(null);
@@ -65,7 +68,7 @@ export const AuthProvider = ({ children }) => {
         toast.success("Logged out successfully");
     };
 
-    // ✅ UPDATE PROFILE
+    // UPDATE PROFILE
     const updateProfile = async (body) => {
         try {
             const { data } = await axios.put("/api/auth/update-profile", body);
@@ -78,12 +81,11 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // ✅ SOCKET CONNECTION (IMPORTANT)
+    // SOCKET CONNECTION (FIXED)
     const connectSocket = (userData) => {
         if (!userData || socket?.connected) return;
 
-        const newSocket = io({
-            path: "/socket.io",
+        const newSocket = io(backendUrl, {
             transports: ["websocket"],
             query: {
                 userId: userData._id,
