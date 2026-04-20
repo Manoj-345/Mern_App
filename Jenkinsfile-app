@@ -7,6 +7,14 @@ pipeline {
         IMAGE_BACKEND  = "manoj232005/quickchat-server:${IMAGE_TAG}"
         IMAGE_FRONTEND = "manoj232005/quickchat-client:${IMAGE_TAG}"
         IMAGE_AIOPS    = "manoj232005/quickchat-aiops:${IMAGE_TAG}"
+
+        PROMETHEUS_URL = "http://13.206.91.169:9090"
+        CPU_THRESHOLD  = "70"
+        MAX_REPLICAS   = "5"
+        DEPLOYMENT_NAME = "quickchat-backend"
+        NAMESPACE = "default"
+        ASG_NAME = "quickchat-worker-asg"
+        AWS_REGION = "ap-south-1"
     }
 
     options {
@@ -17,9 +25,6 @@ pipeline {
 
     stages {
 
-        
-        // CHECKOUT CODE
-        
         stage('Checkout Code') {
             steps {
                 git branch: 'main',
@@ -28,36 +33,20 @@ pipeline {
             }
         }
 
-        
-        // BUILD DOCKER IMAGES
-        
         stage('Build Images') {
             parallel {
-
                 stage('Backend') {
-                    steps {
-                        sh 'docker build -t $IMAGE_BACKEND ./server'
-                    }
+                    steps { sh 'docker build -t $IMAGE_BACKEND ./server' }
                 }
-
                 stage('Frontend') {
-                    steps {
-                        // ✅ NO BACKEND URL (Ingress handles routing)
-                        sh 'docker build -t $IMAGE_FRONTEND ./client'
-                    }
+                    steps { sh 'docker build -t $IMAGE_FRONTEND ./client' }
                 }
-
                 stage('AIOps') {
-                    steps {
-                        sh 'docker build -t $IMAGE_AIOPS ./aiops'
-                    }
+                    steps { sh 'docker build -t $IMAGE_AIOPS ./aiops' }
                 }
             }
         }
 
-        
-        // PUSH DOCKER IMAGES
-        
         stage('Push Images') {
             steps {
                 withCredentials([usernamePassword(
@@ -76,9 +65,6 @@ pipeline {
             }
         }
 
-        
-        // CREATE / UPDATE K8s SECRETS
-        
         stage('Create Kubernetes Secrets') {
             steps {
                 withCredentials([
@@ -97,9 +83,6 @@ pipeline {
                     kubectl create secret generic quickchat-backend-secret \
                       --from-literal=MONGODB_URI="$MONGO_URI" \
                       --from-literal=JWT_SECRET="$JWT_SECRET" \
-                      --from-literal=CLOUDINARY_CLOUD_NAME="$CLOUD_NAME" \
-                      --from-literal=CLOUDINARY_API_KEY="$CLOUD_KEY" \
-                      --from-literal=CLOUDINARY_API_SECRET="$CLOUD_SECRET" \
                       --dry-run=client -o yaml | kubectl apply -f -
 
                     kubectl create secret generic quickchat-aiops-secret \
@@ -111,9 +94,6 @@ pipeline {
             }
         }
 
-       
-        // DEPLOY USING HELM
-        
         stage('Deploy Application') {
             steps {
                 withCredentials([file(
@@ -134,9 +114,6 @@ pipeline {
             }
         }
 
-        
-        // VERIFY DEPLOYMENT
-        
         stage('Verify Rollout') {
             steps {
                 withCredentials([file(
@@ -153,10 +130,8 @@ pipeline {
             }
         }
 
-        
-        // INSTALL MONITORING (ONLY ONCE)
-        
-        stage('Install Monitoring') {
+        //  RUN AIOPS
+        stage('Run AIOps') {
             steps {
                 withCredentials([file(
                     credentialsId: 'kubeconfig',
@@ -164,46 +139,17 @@ pipeline {
                 )]) {
                     sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
-
-                    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-                    helm repo update
-
-                    if ! helm list -n monitoring | grep monitoring; then
-                      helm install monitoring prometheus-community/kube-prometheus-stack \
-                        --namespace monitoring \
-                        --create-namespace \
-                        --wait \
-                        --timeout 20m \
-                        --set grafana.resources.requests.memory=128Mi \
-                        --set prometheus.resources.requests.memory=256Mi \
-                        --set alertmanager.enabled=false
-                    else
-                      echo "Monitoring already installed, skipping..."
-                    fi
+                    python3 aiops/aiops.py
                     '''
                 }
             }
         }
     }
 
-    
-    // CLEANUP (SAFE FOR t3.small)
-    
     post {
-        success {
-            echo "🎉 Deployment Successful 🚀"
-        }
-
-        failure {
-            echo "❌ Deployment Failed"
-        }
-
         always {
             sh '''
-            # Clean stopped containers
             docker container prune -f
-
-            # Clean unused images (safe)
             docker image prune -f
             '''
         }

@@ -4,10 +4,15 @@ import time
 import boto3
 from kubernetes import client, config
 
+#
 # ENV VARIABLES
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL")
-CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 0.7))
+PROMETHEUS_URL = os.getenv(
+    "PROMETHEUS_URL",
+    "http:http://13.206.91.169:9090"   # 🔥 CHANGE THIS
+)
+
+CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 70))
 MAX_REPLICAS = int(os.getenv("MAX_REPLICAS", 5))
 
 DEPLOYMENT_NAME = os.getenv("DEPLOYMENT_NAME", "quickchat-backend")
@@ -19,9 +24,12 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK")
 SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")
 
+
 # INIT K8s + AWS
 
-config.load_incluster_config()
+
+# ✅ For Jenkins / external execution
+config.load_kube_config()
 
 apps_v1 = client.AppsV1Api()
 core_v1 = client.CoreV1Api()
@@ -30,27 +38,41 @@ autoscaling = boto3.client("autoscaling", region_name=AWS_REGION)
 cloudwatch = boto3.client("cloudwatch", region_name=AWS_REGION)
 sns = boto3.client("sns", region_name=AWS_REGION)
 
+
+# GLOBAL CONTROL (COOLDOWN)
+
+
+last_scaled_time = 0
+COOLDOWN = 300  # 5 minutes
+
+
 # GET CPU FROM PROMETHEUS
+
 
 def get_cpu_usage():
     try:
-        query = 'sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m]))'
+        # ✅ Cluster-level CPU usage
+        query = '100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)'
+
         response = requests.get(
             f"{PROMETHEUS_URL}/api/v1/query",
             params={"query": query},
             timeout=5
         )
+
         result = response.json()
 
         if result["status"] == "success" and result["data"]["result"]:
             return float(result["data"]["result"][0]["value"][1])
 
     except Exception as e:
-        print("Prometheus error:", e)
+        print("❌ Prometheus error:", e)
 
     return 0
 
+
 # SCALE KUBERNETES
+
 
 def scale_kubernetes():
     try:
@@ -67,39 +89,51 @@ def scale_kubernetes():
                 DEPLOYMENT_NAME, NAMESPACE, body
             )
 
-            print(f"Kubernetes scaled to {replicas + 1}")
+            print(f"✅ Kubernetes scaled to {replicas + 1}")
             return True
 
-        print("Max replicas reached")
+        print("⚠️ Max replicas reached")
         return False
 
     except Exception as e:
-        print("Kubernetes scaling error:", e)
+        print("❌ Kubernetes scaling error:", e)
         return False
 
+
 # RESTART FAILED PODS
+
 
 def restart_failed_pods():
     try:
         pods = core_v1.list_namespaced_pod(NAMESPACE)
 
         for pod in pods.items:
-            if pod.metadata.labels.get("app") == "backend":
-                for container_status in pod.status.container_statuses or []:
+            if DEPLOYMENT_NAME in pod.metadata.name:
+
+                if not pod.status.container_statuses:
+                    continue
+
+                for container_status in pod.status.container_statuses:
                     if container_status.restart_count > 3:
-                        print("Restarting pod:", pod.metadata.name)
+                        print("🔁 Restarting pod:", pod.metadata.name)
 
                         core_v1.delete_namespaced_pod(
                             pod.metadata.name, NAMESPACE
                         )
 
     except Exception as e:
-        print("Pod restart error:", e)
+        print("❌ Pod restart error:", e)
+
 
 # SCALE EC2 ASG
 
+
 def scale_asg():
     try:
+        if not ASG_NAME:
+            print("⚠️ ASG_NAME not set")
+            return
+
         response = autoscaling.describe_auto_scaling_groups(
             AutoScalingGroupNames=[ASG_NAME]
         )
@@ -107,7 +141,7 @@ def scale_asg():
         groups = response.get("AutoScalingGroups", [])
 
         if not groups:
-            print("ASG not found")
+            print("⚠️ ASG not found")
             return
 
         asg = groups[0]
@@ -119,20 +153,26 @@ def scale_asg():
             HonorCooldown=False
         )
 
-        print("EC2 ASG scaled")
+        print("🚀 EC2 ASG scaled")
 
     except Exception as e:
-        print("ASG scaling error:", e)
+        print("❌ ASG scaling error:", e)
 
 
 # ALERTS
 
+
 def send_slack(message):
     if SLACK_WEBHOOK:
         try:
-            requests.post(SLACK_WEBHOOK, json={"text": message}, timeout=5)
+            requests.post(
+                SLACK_WEBHOOK,
+                json={"text": message},
+                timeout=5
+            )
         except Exception as e:
-            print("Slack error:", e)
+            print("❌ Slack error:", e)
+
 
 def send_sns(message):
     if SNS_TOPIC_ARN:
@@ -143,9 +183,11 @@ def send_sns(message):
                 Subject="QuickChat AIOps Alert"
             )
         except Exception as e:
-            print("SNS error:", e)
+            print("❌ SNS error:", e)
+
 
 # CLOUDWATCH METRIC
+
 
 def push_metric(cpu):
     try:
@@ -158,29 +200,35 @@ def push_metric(cpu):
             }]
         )
     except Exception as e:
-        print("CloudWatch error:", e)
+        print("❌ CloudWatch error:", e)
+
 
 # MAIN LOOP
 
 def main():
-    print("AIOps Started...")
+    global last_scaled_time
+
+    print("🚀 AIOps Started...")
 
     while True:
         try:
             cpu = get_cpu_usage()
-            print("CPU:", cpu)
+            print(f"📊 CPU Usage: {cpu:.2f}%")
 
-            # 🔥 IMPORTANT FIX
             if cpu == 0:
-                print("Skipping invalid CPU value")
+                print("⚠️ Skipping invalid CPU value")
                 time.sleep(60)
                 continue
 
             push_metric(cpu)
             restart_failed_pods()
 
-            if cpu > CPU_THRESHOLD:
-                message = f"🚨 High CPU detected: {cpu}"
+            # ✅ COOLDOWN CONTROL
+            if cpu > CPU_THRESHOLD and (time.time() - last_scaled_time > COOLDOWN):
+
+                message = f"🚨 High CPU detected: {cpu:.2f}%"
+
+                print(message)
 
                 scaled = scale_kubernetes()
 
@@ -190,10 +238,13 @@ def main():
                 send_slack(message)
                 send_sns(message)
 
+                last_scaled_time = time.time()
+
         except Exception as e:
-            print("Main loop error:", e)
+            print("❌ Main loop error:", e)
 
         time.sleep(60)
+
 
 if __name__ == "__main__":
     main()
