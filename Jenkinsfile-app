@@ -10,7 +10,7 @@ pipeline {
 
         PROMETHEUS_URL = "http://13.206.91.169:9090"
         CPU_THRESHOLD  = "70"
-        MAX_REPLICAS   = "5"
+        MAX_REPLICAS   = "3"
         DEPLOYMENT_NAME = "quickchat-backend"
         NAMESPACE = "default"
         ASG_NAME = "quickchat-worker-asg"
@@ -36,13 +36,19 @@ pipeline {
         stage('Build Images') {
             parallel {
                 stage('Backend') {
-                    steps { sh 'docker build -t $IMAGE_BACKEND ./server' }
+                    steps {
+                        sh 'docker build -t $IMAGE_BACKEND ./server'
+                    }
                 }
                 stage('Frontend') {
-                    steps { sh 'docker build -t $IMAGE_FRONTEND ./client' }
+                    steps {
+                        sh 'docker build -t $IMAGE_FRONTEND ./client'
+                    }
                 }
                 stage('AIOps') {
-                    steps { sh 'docker build -t $IMAGE_AIOPS ./aiops' }
+                    steps {
+                        sh 'docker build -t $IMAGE_AIOPS ./aiops'
+                    }
                 }
             }
         }
@@ -71,9 +77,6 @@ pipeline {
                     file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE'),
                     string(credentialsId: 'mongodb-uri', variable: 'MONGO_URI'),
                     string(credentialsId: 'jwt-secret', variable: 'JWT_SECRET'),
-                    string(credentialsId: 'cloudinary-name', variable: 'CLOUD_NAME'),
-                    string(credentialsId: 'cloudinary-api-key', variable: 'CLOUD_KEY'),
-                    string(credentialsId: 'cloudinary-api-secret', variable: 'CLOUD_SECRET'),
                     string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK'),
                     string(credentialsId: 'sns-topic-arn', variable: 'SNS_ARN')
                 ]) {
@@ -130,16 +133,28 @@ pipeline {
             }
         }
 
-        //  RUN AIOPS
         stage('Run AIOps') {
             steps {
-                withCredentials([file(
-                    credentialsId: 'kubeconfig',
-                    variable: 'KUBECONFIG_FILE'
-                )]) {
+                withCredentials([
+                    file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE'),
+                    string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK'),
+                    string(credentialsId: 'sns-topic-arn', variable: 'SNS_ARN')
+                ]) {
                     sh '''
-                    export KUBECONFIG=$KUBECONFIG_FILE
-                    python3 aiops/aiops.py
+                    docker run --rm \
+                      --user root \
+                      -e KUBECONFIG=/root/.kube/config \
+                      -e PROMETHEUS_URL=$PROMETHEUS_URL \
+                      -e CPU_THRESHOLD=$CPU_THRESHOLD \
+                      -e MAX_REPLICAS=$MAX_REPLICAS \
+                      -e DEPLOYMENT_NAME=$DEPLOYMENT_NAME \
+                      -e NAMESPACE=$NAMESPACE \
+                      -e AWS_REGION=$AWS_REGION \
+                      -e ASG_NAME=$ASG_NAME \
+                      -e SLACK_WEBHOOK=$SLACK_WEBHOOK \
+                      -e SNS_TOPIC_ARN=$SNS_ARN \
+                      -v $KUBECONFIG_FILE:/root/.kube/config \
+                      $IMAGE_AIOPS
                     '''
                 }
             }
