@@ -1,8 +1,8 @@
 import os
 import requests
 import boto3
+import time
 from kubernetes import client, config
-
 
 # ENV VARIABLES
 
@@ -22,9 +22,10 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK")
 SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")
 
+COOLDOWN = 300
+last_scaled_time = 0
 
 # INIT CLIENTS
-
 
 config.load_kube_config()
 
@@ -37,7 +38,6 @@ sns = boto3.client("sns", region_name=AWS_REGION)
 
 # PROMETHEUS QUERIES
 
-
 CPU_QUERY = """
 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)
 """
@@ -47,7 +47,8 @@ MEMORY_QUERY = """
 """
 
 
-# METRICS FETCH
+# METRICS
+
 
 def query_prometheus(query):
     try:
@@ -56,7 +57,6 @@ def query_prometheus(query):
             params={"query": query},
             timeout=5
         )
-
         result = response.json()
 
         if result["status"] == "success" and result["data"]["result"]:
@@ -71,20 +71,58 @@ def query_prometheus(query):
 def get_metrics():
     cpu = query_prometheus(CPU_QUERY)
     memory = query_prometheus(MEMORY_QUERY)
-
     return cpu, memory
+
+
+# ALERTS
+
+def send_alert(message):
+    print(f"📣 ALERT: {message}")
+
+    # Slack
+    if SLACK_WEBHOOK:
+        try:
+            requests.post(SLACK_WEBHOOK, json={"text": message}, timeout=5)
+        except:
+            pass
+
+    # SNS (Email/SMS)
+    if SNS_TOPIC_ARN:
+        try:
+            sns.publish(
+                TopicArn=SNS_TOPIC_ARN,
+                Message=message,
+                Subject="🚨 AIOps Alert"
+            )
+        except:
+            pass
+
+# CLOUDWATCH
+
+
+def push_metrics(cpu, memory):
+    try:
+        cloudwatch.put_metric_data(
+            Namespace="QuickChat/AIOps",
+            MetricData=[
+                {"MetricName": "CPUUsage", "Value": cpu, "Unit": "Percent"},
+                {"MetricName": "MemoryUsage", "Value": memory, "Unit": "Percent"}
+            ]
+        )
+    except Exception as e:
+        print("❌ CloudWatch error:", e)
 
 
 # KUBERNETES SCALING
 
 def scale_kubernetes():
     try:
-        deployment = apps_v1.read_namespaced_deployment(
-            DEPLOYMENT_NAME,
-            NAMESPACE
+        scale = apps_v1.read_namespaced_deployment_scale(
+            name=DEPLOYMENT_NAME,
+            namespace=NAMESPACE
         )
 
-        replicas = deployment.spec.replicas
+        replicas = scale.spec.replicas
 
         if replicas >= MAX_REPLICAS:
             print("⚠️ Max replicas reached")
@@ -92,10 +130,10 @@ def scale_kubernetes():
 
         new_replicas = replicas + 1
 
-        apps_v1.patch_namespaced_deployment(
-            DEPLOYMENT_NAME,
-            NAMESPACE,
-            {"spec": {"replicas": new_replicas}}
+        apps_v1.patch_namespaced_deployment_scale(
+            name=DEPLOYMENT_NAME,
+            namespace=NAMESPACE,
+            body={"spec": {"replicas": new_replicas}}
         )
 
         print(f"🚀 Kubernetes scaled to {new_replicas}")
@@ -106,12 +144,12 @@ def scale_kubernetes():
         return False
 
 
-
-# ASG SCALING
+# ASG SCALING 
 
 
 def scale_asg():
     if not ASG_NAME:
+        print("⚠️ No ASG configured")
         return
 
     try:
@@ -121,6 +159,7 @@ def scale_asg():
 
         groups = response.get("AutoScalingGroups", [])
         if not groups:
+            print("⚠️ ASG not found")
             return
 
         asg = groups[0]
@@ -138,59 +177,13 @@ def scale_asg():
         print("❌ ASG error:", e)
 
 
-
-# ALERTS
-
-def send_alert(message):
-    print(f"📣 {message}")
-
-    if SLACK_WEBHOOK:
-        try:
-            requests.post(SLACK_WEBHOOK, json={"text": message}, timeout=5)
-        except:
-            pass
-
-    if SNS_TOPIC_ARN:
-        try:
-            sns.publish(
-                TopicArn=SNS_TOPIC_ARN,
-                Message=message,
-                Subject="AIOps Alert"
-            )
-        except:
-            pass
-
-
-
-# CLOUDWATCH METRICS
-
-
-def push_metrics(cpu, memory):
-    try:
-        cloudwatch.put_metric_data(
-            Namespace="QuickChat/AIOps",
-            MetricData=[
-                {
-                    "MetricName": "CPUUsage",
-                    "Value": cpu,
-                    "Unit": "Percent"
-                },
-                {
-                    "MetricName": "MemoryUsage",
-                    "Value": memory,
-                    "Unit": "Percent"
-                }
-            ]
-        )
-    except Exception as e:
-        print("❌ CloudWatch error:", e)
-
-
-
 # MAIN LOGIC
 
+
 def main():
-    print("\n🚀 ===== NODE AIOPS STARTED =====")
+    global last_scaled_time
+
+    print("\n🚀 ===== AIOPS ENGINE STARTED =====")
 
     cpu, memory = get_metrics()
 
@@ -202,22 +195,32 @@ def main():
 
     push_metrics(cpu, memory)
 
-   
-    # SCALING DECISION LOGIC
+    # cooldown check
+    if time.time() - last_scaled_time < COOLDOWN:
+        print("⏳ Cooldown active - skipping scaling")
+        return
+
+    
+    # STRESS DETECTION
     
 
     if cpu > CPU_THRESHOLD or memory > MEMORY_THRESHOLD:
 
-        message = f"🚨 Node stress detected | CPU: {cpu:.2f}% | Memory: {memory:.2f}%"
+        message = f"🚨 NODE STRESS DETECTED | CPU: {cpu:.2f}% | MEM: {memory:.2f}%"
         send_alert(message)
 
+        # Kubernetes scaling
         scaled = scale_kubernetes()
 
+        #  If Kubernetes fails → scale ASG
         if not scaled:
+            print("⚠️ Kubernetes scaling failed → scaling ASG")
             scale_asg()
 
+        last_scaled_time = time.time()
+
     else:
-        print("✅ System healthy - no scaling needed")
+        print("✅ System healthy")
 
     print("🏁 ===== AIOPS FINISHED =====\n")
 
