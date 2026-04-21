@@ -1,7 +1,7 @@
 import os
+import time
 import requests
 import boto3
-import time
 from kubernetes import client, config
 
 
@@ -9,9 +9,8 @@ from kubernetes import client, config
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 
-CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 70))  # percentage
+CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 70))
 MEMORY_THRESHOLD = float(os.getenv("MEMORY_THRESHOLD", 75))
-
 MAX_REPLICAS = int(os.getenv("MAX_REPLICAS", 5))
 
 DEPLOYMENT_NAME = os.getenv("DEPLOYMENT_NAME", "quickchat-backend")
@@ -23,15 +22,14 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK")
 SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")
 
+CHECK_INTERVAL = 60
 COOLDOWN = 300
-CHECK_INTERVAL = 60  # seconds
 
 last_scaled_time = 0
 
 
-# INIT CLIENTS
+# INIT K8S + AWS CLIENTS
 
-# Kubernetes config (works both inside & outside cluster)
 try:
     config.load_incluster_config()
     print("✅ Using in-cluster Kubernetes config")
@@ -41,14 +39,12 @@ except:
 
 apps_v1 = client.AppsV1Api()
 
-# AWS clients
 autoscaling = boto3.client("autoscaling", region_name=AWS_REGION)
 cloudwatch = boto3.client("cloudwatch", region_name=AWS_REGION)
 sns = boto3.client("sns", region_name=AWS_REGION)
 
 
 # PROMETHEUS QUERIES
-
 
 CPU_QUERY = """
 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)
@@ -64,15 +60,15 @@ MEMORY_QUERY = """
 
 def query_prometheus(query):
     try:
-        response = requests.get(
+        r = requests.get(
             f"{PROMETHEUS_URL}/api/v1/query",
             params={"query": query},
             timeout=5
         )
-        result = response.json()
+        data = r.json()
 
-        if result["status"] == "success" and result["data"]["result"]:
-            return float(result["data"]["result"][0]["value"][1])
+        if data["status"] == "success" and data["data"]["result"]:
+            return float(data["data"]["result"][0]["value"][1])
 
     except Exception as e:
         print("❌ Prometheus error:", e)
@@ -81,45 +77,42 @@ def query_prometheus(query):
 
 
 def get_metrics():
-    cpu = query_prometheus(CPU_QUERY)
-    memory = query_prometheus(MEMORY_QUERY)
-    return cpu, memory
+    return query_prometheus(CPU_QUERY), query_prometheus(MEMORY_QUERY)
 
 
-# ALERTS
+# ALERTING
 
 
-def send_alert(message):
-    print(f"📣 ALERT: {message}")
+def send_alert(msg):
+    print(f"📣 ALERT: {msg}")
 
-    # Slack
     if SLACK_WEBHOOK:
         try:
-            requests.post(SLACK_WEBHOOK, json={"text": message}, timeout=5)
-        except Exception as e:
-            print("❌ Slack error:", e)
+            requests.post(SLACK_WEBHOOK, json={"text": msg}, timeout=5)
+        except:
+            pass
 
-    # SNS
     if SNS_TOPIC_ARN:
         try:
             sns.publish(
                 TopicArn=SNS_TOPIC_ARN,
-                Message=message,
+                Message=msg,
                 Subject="🚨 AIOps Alert"
             )
-        except Exception as e:
-            print("❌ SNS error:", e)
+        except:
+            pass
 
 
 # CLOUDWATCH
 
+
 def push_metrics(cpu, memory):
     try:
         cloudwatch.put_metric_data(
-            Namespace="QuickChat/AIOps",
+            Namespace="AIOps",
             MetricData=[
-                {"MetricName": "CPUUsage", "Value": cpu, "Unit": "Percent"},
-                {"MetricName": "MemoryUsage", "Value": memory, "Unit": "Percent"}
+                {"MetricName": "CPU", "Value": cpu, "Unit": "Percent"},
+                {"MetricName": "Memory", "Value": memory, "Unit": "Percent"},
             ]
         )
     except Exception as e:
@@ -137,6 +130,7 @@ def scale_kubernetes():
         )
 
         replicas = scale.spec.replicas
+        print(f"🔎 Current replicas: {replicas}")
 
         if replicas >= MAX_REPLICAS:
             print("⚠️ Max replicas reached")
@@ -163,7 +157,6 @@ def scale_kubernetes():
 
 def scale_asg():
     if not ASG_NAME:
-        print("⚠️ No ASG configured")
         return
 
     try:
@@ -171,13 +164,11 @@ def scale_asg():
             AutoScalingGroupNames=[ASG_NAME]
         )
 
-        groups = response.get("AutoScalingGroups", [])
+        groups = response["AutoScalingGroups"]
         if not groups:
-            print("⚠️ ASG not found")
             return
 
-        asg = groups[0]
-        current = asg["DesiredCapacity"]
+        current = groups[0]["DesiredCapacity"]
 
         autoscaling.set_desired_capacity(
             AutoScalingGroupName=ASG_NAME,
@@ -191,10 +182,10 @@ def scale_asg():
         print("❌ ASG error:", e)
 
 
-# MAIN LOGIC
+# AIOPS LOGIC 
 
 
-def main():
+def run_aiops():
     global last_scaled_time
 
     print("\n🚀 ===== AIOPS ENGINE RUNNING =====")
@@ -214,36 +205,35 @@ def main():
         print("⏳ Cooldown active - skipping scaling")
         return
 
-    # stress detection
+    # decision engine
     if cpu > CPU_THRESHOLD or memory > MEMORY_THRESHOLD:
 
-        message = f"🚨 NODE STRESS DETECTED | CPU: {cpu:.2f}% | MEM: {memory:.2f}%"
-        send_alert(message)
+        send_alert(
+            f"🚨 HIGH LOAD DETECTED | CPU: {cpu:.2f}% | MEM: {memory:.2f}%"
+        )
 
-        # Kubernetes scaling
         scaled = scale_kubernetes()
 
-        # fallback to ASG
         if not scaled:
-            print("⚠️ Kubernetes scaling failed → scaling ASG")
+            print("⚠️ Kubernetes failed → scaling ASG")
             scale_asg()
 
         last_scaled_time = time.time()
 
     else:
-        print("✅ System healthy")
+        print("✅ System healthy - no scaling needed")
 
-    print("🏁 ===== CYCLE COMPLETE =====\n")
+    print("🏁 ===== AIOPS FINISHED =====\n")
 
 
-# RUN LOOP
+# MAIN LOOP (AIOPS ENGINE)
 
 if __name__ == "__main__":
-    print("🔥 Starting AIOps Engine...")
+    print("🔥 AIOps Engine Started")
 
     while True:
         try:
-            main()
+            run_aiops()
         except Exception as e:
             print("❌ Unexpected error:", e)
 
