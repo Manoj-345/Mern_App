@@ -4,13 +4,14 @@ import boto3
 import time
 from kubernetes import client, config
 
+
 # ENV VARIABLES
 
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://13.206.91.169:9090")
-
-CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 70))
+CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", 70))  # percentage
 MEMORY_THRESHOLD = float(os.getenv("MEMORY_THRESHOLD", 75))
+
 MAX_REPLICAS = int(os.getenv("MAX_REPLICAS", 5))
 
 DEPLOYMENT_NAME = os.getenv("DEPLOYMENT_NAME", "quickchat-backend")
@@ -23,20 +24,31 @@ SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK")
 SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN")
 
 COOLDOWN = 300
+CHECK_INTERVAL = 60  # seconds
+
 last_scaled_time = 0
+
 
 # INIT CLIENTS
 
-config.load_kube_config()
+# Kubernetes config (works both inside & outside cluster)
+try:
+    config.load_incluster_config()
+    print("✅ Using in-cluster Kubernetes config")
+except:
+    config.load_kube_config()
+    print("✅ Using local kubeconfig")
 
 apps_v1 = client.AppsV1Api()
 
+# AWS clients
 autoscaling = boto3.client("autoscaling", region_name=AWS_REGION)
 cloudwatch = boto3.client("cloudwatch", region_name=AWS_REGION)
 sns = boto3.client("sns", region_name=AWS_REGION)
 
 
 # PROMETHEUS QUERIES
+
 
 CPU_QUERY = """
 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)
@@ -76,6 +88,7 @@ def get_metrics():
 
 # ALERTS
 
+
 def send_alert(message):
     print(f"📣 ALERT: {message}")
 
@@ -83,10 +96,10 @@ def send_alert(message):
     if SLACK_WEBHOOK:
         try:
             requests.post(SLACK_WEBHOOK, json={"text": message}, timeout=5)
-        except:
-            pass
+        except Exception as e:
+            print("❌ Slack error:", e)
 
-    # SNS (Email/SMS)
+    # SNS
     if SNS_TOPIC_ARN:
         try:
             sns.publish(
@@ -94,11 +107,11 @@ def send_alert(message):
                 Message=message,
                 Subject="🚨 AIOps Alert"
             )
-        except:
-            pass
+        except Exception as e:
+            print("❌ SNS error:", e)
+
 
 # CLOUDWATCH
-
 
 def push_metrics(cpu, memory):
     try:
@@ -114,6 +127,7 @@ def push_metrics(cpu, memory):
 
 
 # KUBERNETES SCALING
+
 
 def scale_kubernetes():
     try:
@@ -144,7 +158,7 @@ def scale_kubernetes():
         return False
 
 
-# ASG SCALING 
+# ASG SCALING
 
 
 def scale_asg():
@@ -183,7 +197,7 @@ def scale_asg():
 def main():
     global last_scaled_time
 
-    print("\n🚀 ===== AIOPS ENGINE STARTED =====")
+    print("\n🚀 ===== AIOPS ENGINE RUNNING =====")
 
     cpu, memory = get_metrics()
 
@@ -200,10 +214,7 @@ def main():
         print("⏳ Cooldown active - skipping scaling")
         return
 
-    
-    # STRESS DETECTION
-    
-
+    # stress detection
     if cpu > CPU_THRESHOLD or memory > MEMORY_THRESHOLD:
 
         message = f"🚨 NODE STRESS DETECTED | CPU: {cpu:.2f}% | MEM: {memory:.2f}%"
@@ -212,7 +223,7 @@ def main():
         # Kubernetes scaling
         scaled = scale_kubernetes()
 
-        #  If Kubernetes fails → scale ASG
+        # fallback to ASG
         if not scaled:
             print("⚠️ Kubernetes scaling failed → scaling ASG")
             scale_asg()
@@ -222,8 +233,18 @@ def main():
     else:
         print("✅ System healthy")
 
-    print("🏁 ===== AIOPS FINISHED =====\n")
+    print("🏁 ===== CYCLE COMPLETE =====\n")
 
+
+# RUN LOOP
 
 if __name__ == "__main__":
-    main()
+    print("🔥 Starting AIOps Engine...")
+
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print("❌ Unexpected error:", e)
+
+        time.sleep(CHECK_INTERVAL)
